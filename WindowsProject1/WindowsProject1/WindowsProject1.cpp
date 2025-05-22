@@ -1,35 +1,49 @@
-#include "framework.h"      // Assuming this includes windows.h or other project-specific headers
-#include <windowsx.h>       // Include for GET_X_LPARAM and GET_Y_LPARAM macros
-#include "WindowsProject1.h" // Your project header
+#include "framework.h"
+#include <windowsx.h>
+#include "WindowsProject1.h"
 #include <vector>
 #include <cmath>
 
 #define MAX_LOADSTRING 100
 
+// Menu IDs
+#define ID_BG_RED 1001
+#define ID_BG_GREEN 1002
+#define ID_BG_BLUE 1003
+#define ID_BALL_RED 1004
+#define ID_BALL_GREEN 1005
+#define ID_BALL_BLUE 1006
+
 // Global Variables:
-HINSTANCE hInst;                                // Current instance
-WCHAR szTitle[MAX_LOADSTRING];                  // The title bar text
-WCHAR szWindowClass[MAX_LOADSTRING];            // The main window class name
+HINSTANCE hInst;
+WCHAR szTitle[MAX_LOADSTRING];
+WCHAR szWindowClass[MAX_LOADSTRING];
 
 // Physics Variables:
 struct Ball {
-    float x, y;                                 // Position
-    float vx, vy;                               // Velocity
+    float x, y;
+    float vx, vy;
 };
-std::vector<Ball> balls;                        // Collection of balls
-const float radius = 20.0f;                     // Ball radius
-const float gravity = 500.0f;                   // Gravity in pixels/s²
-const float damping = 0.8f;                     // Damping factor for bounces
-int window_width, window_height;                // Window dimensions
-DWORD last_time;                                // Last update time
-COLORREF bg_color = RGB(255, 255, 255);         // Background color (white)
-COLORREF ball_color = RGB(0, 0, 255);           // Ball color (red)
+std::vector<Ball> balls;
+const float radius = 20.0f;
+const float gravity = 500.0f;
+const float damping = 0.8f;
+int window_width, window_height;
+DWORD last_time;
+COLORREF bg_color = RGB(0, 0, 0);
+COLORREF ball_color = RGB(0, 0, 255);
 
-// Virtual ball for imaginary finger (when right mouse button is held)
+// Virtual ball
 bool virtual_ball_active = false;
 float virtual_ball_x, virtual_ball_y;
 
-// Forward declarations of functions included in this code module:
+// Holding variables
+bool is_holding = false;
+float start_x, start_y;
+const float threshold = 5.0f;
+const float velocity_scale = 5.0f;
+
+// Forward declarations
 ATOM MyRegisterClass(HINSTANCE hInstance);
 BOOL InitInstance(HINSTANCE, int);
 LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
@@ -73,10 +87,12 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 
 ATOM MyRegisterClass(HINSTANCE hInstance)
 {
-    WNDCLASSEXW wcex = { 0 };
+    WNDCLASSEXW wcex;
     wcex.cbSize = sizeof(WNDCLASSEX);
     wcex.style = CS_HREDRAW | CS_VREDRAW;
     wcex.lpfnWndProc = WndProc;
+    wcex.cbClsExtra = 0;
+    wcex.cbWndExtra = 0;
     wcex.hInstance = hInstance;
     wcex.hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_WINDOWSPROJECT1));
     wcex.hCursor = LoadCursor(nullptr, IDC_ARROW);
@@ -90,18 +106,14 @@ ATOM MyRegisterClass(HINSTANCE hInstance)
 BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 {
     hInst = hInstance; // Store instance handle in our global variable
-
     HWND hWnd = CreateWindowW(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW,
         CW_USEDEFAULT, 0, 800, 600, nullptr, nullptr, hInstance, nullptr);
-
     if (!hWnd)
     {
         return FALSE;
     }
-
     ShowWindow(hWnd, nCmdShow);
     UpdateWindow(hWnd);
-
     return TRUE;
 }
 
@@ -145,14 +157,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                         // Normalize collision direction
                         float nx = dx / distance;
                         float ny = dy / distance;
-
                         // Separate balls
                         float overlap = 2 * radius - distance;
                         balls[i].x -= nx * overlap / 2;
                         balls[i].y -= ny * overlap / 2;
                         balls[j].x += nx * overlap / 2;
                         balls[j].y += ny * overlap / 2;
-
                         // Update velocities (elastic collision, equal mass)
                         float v1_par = balls[i].vx * nx + balls[i].vy * ny;
                         float v2_par = balls[j].vx * nx + balls[j].vy * ny;
@@ -168,7 +178,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 }
             }
 
-            // Ball-to-virtual ball collisions (if active)
+            // Ball-to-virtual ball collisions
             if (virtual_ball_active)
             {
                 for (auto& ball : balls)
@@ -181,12 +191,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                         // Normalize collision direction
                         float nx = dx / distance;
                         float ny = dy / distance;
-
                         // Separate ball from virtual ball
                         float overlap = 2 * radius - distance;
                         ball.x += nx * overlap;
                         ball.y += ny * overlap;
-
                         // Reflect velocity (virtual ball is immovable)
                         float v_dot_n = ball.vx * nx + ball.vy * ny;
                         ball.vx -= 2 * v_dot_n * nx;
@@ -234,11 +242,13 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     {
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hWnd, &ps);
+        // Clear background
         RECT rect;
         GetClientRect(hWnd, &rect);
         HBRUSH hBgBrush = CreateSolidBrush(bg_color);
         FillRect(hdc, &rect, hBgBrush);
         DeleteObject(hBgBrush);
+        // Draw all balls
         HBRUSH hBallBrush = CreateSolidBrush(ball_color);
         HBRUSH hOldBrush = (HBRUSH)SelectObject(hdc, hBallBrush);
         for (const auto& ball : balls)
@@ -257,17 +267,43 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
     case WM_LBUTTONDOWN:
     {
-        // Spawn a ball at mouse click position
-        int mouse_x = GET_X_LPARAM(lParam);
-        int mouse_y = GET_Y_LPARAM(lParam);
-        balls.push_back({ (float)mouse_x, (float)mouse_y, 0.0f, 0.0f });
-        InvalidateRect(hWnd, NULL, TRUE);
+        is_holding = true;
+        start_x = (float)GET_X_LPARAM(lParam);
+        start_y = (float)GET_Y_LPARAM(lParam);
+        SetCapture(hWnd);
+    }
+    break;
+
+    case WM_LBUTTONUP:
+    {
+        if (is_holding)
+        {
+            is_holding = false;
+            ReleaseCapture();
+            float end_x = (float)GET_X_LPARAM(lParam);
+            float end_y = (float)GET_Y_LPARAM(lParam);
+            float dx = end_x - start_x;
+            float dy = end_y - start_y;
+            float distance = sqrtf(dx * dx + dy * dy);
+            if (distance < threshold)
+            {
+                // Drop ball with zero velocity
+                balls.push_back({ start_x, start_y, 0.0f, 0.0f });
+            }
+            else
+            {
+                // Launch ball with velocity
+                float vx = velocity_scale * dx;
+                float vy = velocity_scale * dy;
+                balls.push_back({ start_x, start_y, vx, vy });
+            }
+            InvalidateRect(hWnd, NULL, TRUE);
+        }
     }
     break;
 
     case WM_MOUSEMOVE:
     {
-        // Update virtual ball when right mouse button is held
         int mouse_x = GET_X_LPARAM(lParam);
         int mouse_y = GET_Y_LPARAM(lParam);
         if (wParam & MK_RBUTTON)
@@ -279,6 +315,47 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         else
         {
             virtual_ball_active = false;
+        }
+    }
+    break;
+
+    case WM_COMMAND:
+    {
+        int wmId = LOWORD(wParam);
+        switch (wmId)
+        {
+        case ID_BG_RED:
+            bg_color = RGB(255, 0, 0);
+            InvalidateRect(hWnd, NULL, TRUE);
+            break;
+        case ID_BG_GREEN:
+            bg_color = RGB(0, 255, 0);
+            InvalidateRect(hWnd, NULL, TRUE);
+            break;
+        case ID_BG_BLUE:
+            bg_color = RGB(0, 0, 255);
+            InvalidateRect(hWnd, NULL, TRUE);
+            break;
+        case ID_BALL_RED:
+            ball_color = RGB(255, 0, 0);
+            InvalidateRect(hWnd, NULL, TRUE);
+            break;
+        case ID_BALL_GREEN:
+            ball_color = RGB(0, 255, 0);
+            InvalidateRect(hWnd, NULL, TRUE);
+            break;
+        case ID_BALL_BLUE:
+            ball_color = RGB(0, 0, 255);
+            InvalidateRect(hWnd, NULL, TRUE);
+            break;
+        case IDM_ABOUT:
+            DialogBox(hInst, MAKEINTRESOURCE(IDD_ABOUTBOX), hWnd, About);
+            break;
+        case IDM_EXIT:
+            DestroyWindow(hWnd);
+            break;
+        default:
+            return DefWindowProc(hWnd, message, wParam, lParam);
         }
     }
     break;
